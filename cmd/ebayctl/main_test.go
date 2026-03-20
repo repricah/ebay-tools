@@ -26,12 +26,76 @@ func (stubClient) GetPrivileges(context.Context, string) (*ebaytools.SellingPriv
 	return &ebaytools.SellingPrivileges{SellerRegistrationCompleted: true}, nil
 }
 
+func (stubClient) OptInToProgram(context.Context, ebaytools.OptInToProgramRequest, string) error {
+	return nil
+}
+
+func (stubClient) GetOptedInPrograms(context.Context, string) (*ebaytools.OptInProgramsResponse, error) {
+	return &ebaytools.OptInProgramsResponse{
+		Programs: []ebaytools.Program{
+			{ProgramType: "SELLING_POLICY_MANAGEMENT", OptInStatus: "OPTED_IN"},
+		},
+	}, nil
+}
+
 func (stubClient) GetInventoryItem(context.Context, string, string) (*ebaytools.InventoryItem, error) {
 	return &ebaytools.InventoryItem{SKU: "sku-123"}, nil
 }
 
 func (stubClient) UpsertInventoryItem(context.Context, string, ebaytools.InventoryItem, string, string) error {
 	return nil
+}
+
+func (stubClient) GetInventoryLocations(context.Context, string) (*ebaytools.InventoryLocationsResponse, error) {
+	return &ebaytools.InventoryLocationsResponse{
+		Total: 1,
+		Locations: []ebaytools.InventoryLocation{
+			{MerchantLocationKey: "warehouse-1", Name: "Sandbox Warehouse"},
+		},
+	}, nil
+}
+
+func (stubClient) CreateInventoryLocation(context.Context, string, ebaytools.InventoryLocation, string) error {
+	return nil
+}
+
+func (stubClient) GetFulfillmentPolicies(context.Context, string, string) (*ebaytools.FulfillmentPoliciesResponse, error) {
+	return &ebaytools.FulfillmentPoliciesResponse{
+		Total: 1,
+		FulfillmentPolicies: []ebaytools.FulfillmentPolicy{
+			{FulfillmentPolicyID: "fulfillment-policy-id", Name: "Default Shipping"},
+		},
+	}, nil
+}
+
+func (stubClient) GetPaymentPolicies(context.Context, string, string) (*ebaytools.PaymentPoliciesResponse, error) {
+	return &ebaytools.PaymentPoliciesResponse{
+		Total: 1,
+		PaymentPolicies: []ebaytools.PaymentPolicy{
+			{PaymentPolicyID: "payment-policy-id", Name: "Default Payment"},
+		},
+	}, nil
+}
+
+func (stubClient) GetReturnPolicies(context.Context, string, string) (*ebaytools.ReturnPoliciesResponse, error) {
+	return &ebaytools.ReturnPoliciesResponse{
+		Total: 1,
+		ReturnPolicies: []ebaytools.ReturnPolicy{
+			{ReturnPolicyID: "return-policy-id", Name: "Default Return"},
+		},
+	}, nil
+}
+
+func (stubClient) CreateFulfillmentPolicy(context.Context, ebaytools.FulfillmentPolicy, string) (*ebaytools.FulfillmentPolicy, error) {
+	return &ebaytools.FulfillmentPolicy{FulfillmentPolicyID: "fulfillment-policy-id"}, nil
+}
+
+func (stubClient) CreatePaymentPolicy(context.Context, ebaytools.PaymentPolicy, string) (*ebaytools.PaymentPolicy, error) {
+	return &ebaytools.PaymentPolicy{PaymentPolicyID: "payment-policy-id"}, nil
+}
+
+func (stubClient) CreateReturnPolicy(context.Context, ebaytools.ReturnPolicy, string) (*ebaytools.ReturnPolicy, error) {
+	return &ebaytools.ReturnPolicy{ReturnPolicyID: "return-policy-id"}, nil
 }
 
 func (stubClient) GetOffers(context.Context, string, string) (*ebaytools.OffersResponse, error) {
@@ -68,6 +132,154 @@ func TestRunOfferGet(t *testing.T) {
 	}
 	if !strings.Contains(stdout, `"offerId": "offer-123"`) {
 		t.Fatalf("stdout missing offer id: %s", stdout)
+	}
+}
+
+func TestRunProgramOptIn(t *testing.T) {
+	type captured struct {
+		request ebaytools.OptInToProgramRequest
+	}
+	var got captured
+
+	previous := newClient
+	newClient = func(cfg ebaytools.Config) (clientAPI, error) {
+		return stubProgramClient{optInFn: func(ctx context.Context, request ebaytools.OptInToProgramRequest, accessToken string) error {
+			got.request = request
+			return nil
+		}}, nil
+	}
+	t.Cleanup(func() { newClient = previous })
+
+	stdout, stderr, err := captureRun(t, []string{"program-opt-in", "SELLING_POLICY_MANAGEMENT"})
+	if err != nil {
+		t.Fatalf("run: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"status": "opt-in-requested"`) {
+		t.Fatalf("stdout missing status: %s", stdout)
+	}
+	if got.request.ProgramType != "SELLING_POLICY_MANAGEMENT" {
+		t.Fatalf("program type = %#v", got.request)
+	}
+}
+
+func TestRunProgramList(t *testing.T) {
+	previous := newClient
+	newClient = func(cfg ebaytools.Config) (clientAPI, error) { return stubClient{}, nil }
+	t.Cleanup(func() { newClient = previous })
+
+	stdout, stderr, err := captureRun(t, []string{"program-list"})
+	if err != nil {
+		t.Fatalf("run: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"programType": "SELLING_POLICY_MANAGEMENT"`) {
+		t.Fatalf("stdout missing program type: %s", stdout)
+	}
+}
+
+func TestRunPolicyList(t *testing.T) {
+	previous := newClient
+	newClient = func(cfg ebaytools.Config) (clientAPI, error) { return stubClient{}, nil }
+	t.Cleanup(func() { newClient = previous })
+
+	stdout, stderr, err := captureRun(t, []string{"policy-list", "fulfillment", "EBAY_US"})
+	if err != nil {
+		t.Fatalf("run: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"fulfillmentPolicyId": "fulfillment-policy-id"`) {
+		t.Fatalf("stdout missing policy id: %s", stdout)
+	}
+}
+
+func TestRunPolicyCreate(t *testing.T) {
+	type captured struct {
+		policy ebaytools.FulfillmentPolicy
+	}
+	var got captured
+
+	previous := newClient
+	newClient = func(cfg ebaytools.Config) (clientAPI, error) {
+		return stubPolicyCreateClient{createFulfillmentFn: func(ctx context.Context, policy ebaytools.FulfillmentPolicy, accessToken string) (*ebaytools.FulfillmentPolicy, error) {
+			got.policy = policy
+			return &ebaytools.FulfillmentPolicy{FulfillmentPolicyID: "fulfillment-policy-id"}, nil
+		}}, nil
+	}
+	t.Cleanup(func() { newClient = previous })
+
+	payloadPath := filepath.Join(t.TempDir(), "fulfillment-policy.json")
+	if err := os.WriteFile(payloadPath, []byte(`{
+		"name": "Default Shipping",
+		"marketplaceId": "EBAY_US",
+		"handlingTime": {"unit": "DAY", "value": 1}
+	}`), 0600); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+
+	stdout, stderr, err := captureRun(t, []string{"policy-create", "fulfillment", payloadPath})
+	if err != nil {
+		t.Fatalf("run: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"fulfillmentPolicyId": "fulfillment-policy-id"`) {
+		t.Fatalf("stdout missing policy id: %s", stdout)
+	}
+	if got.policy.Name != "Default Shipping" || got.policy.MarketplaceID != "EBAY_US" {
+		t.Fatalf("captured policy = %#v", got.policy)
+	}
+}
+
+func TestRunLocationList(t *testing.T) {
+	previous := newClient
+	newClient = func(cfg ebaytools.Config) (clientAPI, error) { return stubClient{}, nil }
+	t.Cleanup(func() { newClient = previous })
+
+	stdout, stderr, err := captureRun(t, []string{"location-list"})
+	if err != nil {
+		t.Fatalf("run: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"merchantLocationKey": "warehouse-1"`) {
+		t.Fatalf("stdout missing location key: %s", stdout)
+	}
+}
+
+func TestRunLocationCreate(t *testing.T) {
+	type captured struct {
+		key      string
+		location ebaytools.InventoryLocation
+	}
+	var got captured
+
+	previous := newClient
+	newClient = func(cfg ebaytools.Config) (clientAPI, error) {
+		return stubLocationCreateClient{createFn: func(ctx context.Context, merchantLocationKey string, location ebaytools.InventoryLocation, accessToken string) error {
+			got.key = merchantLocationKey
+			got.location = location
+			return nil
+		}}, nil
+	}
+	t.Cleanup(func() { newClient = previous })
+
+	payloadPath := filepath.Join(t.TempDir(), "location.json")
+	if err := os.WriteFile(payloadPath, []byte(`{
+		"name": "Sandbox Warehouse",
+		"locationTypes": ["WAREHOUSE"],
+		"location": {
+			"address": {
+				"country": "US",
+				"postalCode": "10001"
+			}
+		}
+	}`), 0600); err != nil {
+		t.Fatalf("write payload: %v", err)
+	}
+
+	stdout, stderr, err := captureRun(t, []string{"location-create", "warehouse-1", payloadPath})
+	if err != nil {
+		t.Fatalf("run: %v stderr=%s", err, stderr)
+	}
+	if !strings.Contains(stdout, `"status": "created"`) {
+		t.Fatalf("stdout missing status: %s", stdout)
+	}
+	if got.key != "warehouse-1" || got.location.Name != "Sandbox Warehouse" {
+		t.Fatalf("captured location = %#v", got)
 	}
 }
 
@@ -141,6 +353,33 @@ type stubCreateClient struct {
 
 func (c stubCreateClient) CreateOffer(ctx context.Context, offer ebaytools.Offer, accessToken string) (*ebaytools.CreateOfferResponse, error) {
 	return c.createFn(ctx, offer, accessToken)
+}
+
+type stubProgramClient struct {
+	stubClient
+	optInFn func(context.Context, ebaytools.OptInToProgramRequest, string) error
+}
+
+func (c stubProgramClient) OptInToProgram(ctx context.Context, request ebaytools.OptInToProgramRequest, accessToken string) error {
+	return c.optInFn(ctx, request, accessToken)
+}
+
+type stubPolicyCreateClient struct {
+	stubClient
+	createFulfillmentFn func(context.Context, ebaytools.FulfillmentPolicy, string) (*ebaytools.FulfillmentPolicy, error)
+}
+
+func (c stubPolicyCreateClient) CreateFulfillmentPolicy(ctx context.Context, policy ebaytools.FulfillmentPolicy, accessToken string) (*ebaytools.FulfillmentPolicy, error) {
+	return c.createFulfillmentFn(ctx, policy, accessToken)
+}
+
+type stubLocationCreateClient struct {
+	stubClient
+	createFn func(context.Context, string, ebaytools.InventoryLocation, string) error
+}
+
+func (c stubLocationCreateClient) CreateInventoryLocation(ctx context.Context, merchantLocationKey string, location ebaytools.InventoryLocation, accessToken string) error {
+	return c.createFn(ctx, merchantLocationKey, location, accessToken)
 }
 
 func captureRun(t *testing.T, args []string) (string, string, error) {
