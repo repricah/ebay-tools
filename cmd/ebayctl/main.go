@@ -4,29 +4,48 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
-	"github.com/repricah/ebay-tools"
+	ebaytools "github.com/repricah/ebay-tools"
+)
+
+type clientAPI interface {
+	RefreshUserAccessToken(ctx context.Context, scopes []string) (*ebaytools.TokenResponse, error)
+	GetPrivileges(ctx context.Context, accessToken string) (*ebaytools.SellingPrivileges, error)
+	GetInventoryItem(ctx context.Context, sku, accessToken string) (*ebaytools.InventoryItem, error)
+	UpsertInventoryItem(ctx context.Context, sku string, item ebaytools.InventoryItem, accessToken, contentLanguage string) error
+	GetOffers(ctx context.Context, sku, accessToken string) (*ebaytools.OffersResponse, error)
+	CreateOffer(ctx context.Context, offer ebaytools.Offer, accessToken string) (*ebaytools.CreateOfferResponse, error)
+	PublishOffer(ctx context.Context, offerID, accessToken string) (*ebaytools.PublishOfferResponse, error)
+}
+
+var (
+	newClient = func(cfg ebaytools.Config) (clientAPI, error) {
+		return ebaytools.NewClient(cfg)
+	}
+	stdout io.Writer = os.Stdout
+	stderr io.Writer = os.Stderr
 )
 
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		os.Exit(1)
 	}
 }
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: ebayctl <smoke|inventory-get|inventory-upsert>")
+		return fmt.Errorf("usage: ebayctl <smoke|inventory-get|inventory-upsert|offer-get|offer-create|offer-publish>")
 	}
 
 	cfg, err := configFromEnv()
 	if err != nil {
 		return err
 	}
-	client, err := ebaytools.NewClient(cfg)
+	client, err := newClient(cfg)
 	if err != nil {
 		return err
 	}
@@ -79,6 +98,49 @@ func run(ctx context.Context, args []string) error {
 			"sku":    args[1],
 			"status": "upserted",
 		})
+	case "offer-get":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ebayctl offer-get <sku>")
+		}
+		token, err := client.RefreshUserAccessToken(ctx, []string{ebaytools.DefaultInventoryReadonlyScope()})
+		if err != nil {
+			return err
+		}
+		offers, err := client.GetOffers(ctx, args[1], token.AccessToken)
+		if err != nil {
+			return err
+		}
+		return writeJSON(offers)
+	case "offer-create":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ebayctl offer-create <json-file>")
+		}
+		offer, err := loadOffer(args[1])
+		if err != nil {
+			return err
+		}
+		token, err := client.RefreshUserAccessToken(ctx, []string{ebaytools.DefaultInventoryScope()})
+		if err != nil {
+			return err
+		}
+		response, err := client.CreateOffer(ctx, offer, token.AccessToken)
+		if err != nil {
+			return err
+		}
+		return writeJSON(response)
+	case "offer-publish":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: ebayctl offer-publish <offer-id>")
+		}
+		token, err := client.RefreshUserAccessToken(ctx, []string{ebaytools.DefaultInventoryScope()})
+		if err != nil {
+			return err
+		}
+		response, err := client.PublishOffer(ctx, args[1], token.AccessToken)
+		if err != nil {
+			return err
+		}
+		return writeJSON(response)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -113,11 +175,23 @@ func loadInventoryItem(path string) (ebaytools.InventoryItem, error) {
 	return item, nil
 }
 
+func loadOffer(path string) (ebaytools.Offer, error) {
+	data, err := os.ReadFile(strings.TrimSpace(path))
+	if err != nil {
+		return ebaytools.Offer{}, fmt.Errorf("read offer file: %w", err)
+	}
+	var offer ebaytools.Offer
+	if err := json.Unmarshal(data, &offer); err != nil {
+		return ebaytools.Offer{}, fmt.Errorf("decode offer file: %w", err)
+	}
+	return offer, nil
+}
+
 func writeJSON(payload any) error {
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Println(string(encoded))
+	_, err = fmt.Fprintln(stdout, string(encoded))
 	return err
 }

@@ -253,6 +253,191 @@ func TestUpsertInventoryItem(t *testing.T) {
 	}
 }
 
+func TestGetOffers(t *testing.T) {
+	t.Parallel()
+
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodGet {
+				t.Fatalf("method = %q, want %q", r.Method, http.MethodGet)
+			}
+			if r.URL.Path != offerPath {
+				t.Fatalf("path = %q, want %q", r.URL.Path, offerPath)
+			}
+			if got := r.URL.Query().Get("sku"); got != "sku-123" {
+				t.Fatalf("sku query = %q", got)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-123" {
+				t.Fatalf("authorization = %q", got)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
+					"href":"https://api.sandbox.ebay.test/sell/inventory/v1/offer?sku=sku-123",
+					"total":1,
+					"size":1,
+					"offers":[{
+						"offerId":"offer-123",
+						"sku":"sku-123",
+						"marketplaceId":"EBAY_US",
+						"format":"FIXED_PRICE",
+						"availableQuantity":4,
+						"status":"UNPUBLISHED",
+						"pricingSummary":{"price":{"currency":"USD","value":"19.99"}}
+					}]
+				}`)),
+			}, nil
+		}),
+	}
+
+	client, err := NewClient(Config{
+		APIBaseURL:    "https://api.sandbox.ebay.test",
+		OAuthTokenURL: "https://api.sandbox.ebay.test/identity/v1/oauth2/token",
+		AppID:         "app-id",
+		CertID:        "cert-id",
+		RefreshToken:  "refresh-123",
+	}, WithHTTPClient(httpClient))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	result, err := client.GetOffers(context.Background(), "sku-123", "access-123")
+	if err != nil {
+		t.Fatalf("GetOffers: %v", err)
+	}
+	if result.Total != 1 || len(result.Offers) != 1 {
+		t.Fatalf("unexpected offers result: %#v", result)
+	}
+	if result.Offers[0].OfferID != "offer-123" {
+		t.Fatalf("offer id = %q", result.Offers[0].OfferID)
+	}
+	if result.Offers[0].PricingSummary == nil || result.Offers[0].PricingSummary.Price == nil || result.Offers[0].PricingSummary.Price.Value != "19.99" {
+		t.Fatalf("pricing = %#v", result.Offers[0].PricingSummary)
+	}
+}
+
+func TestCreateOffer(t *testing.T) {
+	t.Parallel()
+
+	var capturedBody string
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %q, want %q", r.Method, http.MethodPost)
+			}
+			if r.URL.Path != offerPath {
+				t.Fatalf("path = %q, want %q", r.URL.Path, offerPath)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-123" {
+				t.Fatalf("authorization = %q", got)
+			}
+			if got := r.Header.Get("Content-Type"); got != jsonContentType {
+				t.Fatalf("content-type = %q", got)
+			}
+
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read body: %v", err)
+			}
+			capturedBody = string(body)
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"offerId":"offer-123"}`)),
+			}, nil
+		}),
+	}
+
+	client, err := NewClient(Config{
+		APIBaseURL:    "https://api.sandbox.ebay.test",
+		OAuthTokenURL: "https://api.sandbox.ebay.test/identity/v1/oauth2/token",
+		AppID:         "app-id",
+		CertID:        "cert-id",
+		RefreshToken:  "refresh-123",
+	}, WithHTTPClient(httpClient))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	response, err := client.CreateOffer(context.Background(), Offer{
+		SKU:                "sku-123",
+		MarketplaceID:      "EBAY_US",
+		Format:             "FIXED_PRICE",
+		AvailableQuantity:  4,
+		CategoryID:         "183050",
+		ListingDescription: "Demo listing",
+		ListingPolicies: &ListingPolicies{
+			FulfillmentPolicyID: "fulfillment-policy-id",
+			PaymentPolicyID:     "payment-policy-id",
+			ReturnPolicyID:      "return-policy-id",
+		},
+		PricingSummary: &PricingSummary{
+			Price: &Amount{Currency: "USD", Value: "19.99"},
+		},
+	}, "access-123")
+	if err != nil {
+		t.Fatalf("CreateOffer: %v", err)
+	}
+	if response.OfferID != "offer-123" {
+		t.Fatalf("offer id = %q", response.OfferID)
+	}
+	if !strings.Contains(capturedBody, `"sku":"sku-123"`) {
+		t.Fatalf("body missing sku: %q", capturedBody)
+	}
+	if !strings.Contains(capturedBody, `"marketplaceId":"EBAY_US"`) {
+		t.Fatalf("body missing marketplace: %q", capturedBody)
+	}
+	if !strings.Contains(capturedBody, `"fulfillmentPolicyId":"fulfillment-policy-id"`) {
+		t.Fatalf("body missing listing policies: %q", capturedBody)
+	}
+}
+
+func TestPublishOffer(t *testing.T) {
+	t.Parallel()
+
+	httpClient := &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			if r.Method != http.MethodPost {
+				t.Fatalf("method = %q, want %q", r.Method, http.MethodPost)
+			}
+			if r.URL.EscapedPath() != "/sell/inventory/v1/offer/offer-123/publish" {
+				t.Fatalf("escaped path = %q", r.URL.EscapedPath())
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer access-123" {
+				t.Fatalf("authorization = %q", got)
+			}
+
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"listingId":"listing-123"}`)),
+			}, nil
+		}),
+	}
+
+	client, err := NewClient(Config{
+		APIBaseURL:    "https://api.sandbox.ebay.test",
+		OAuthTokenURL: "https://api.sandbox.ebay.test/identity/v1/oauth2/token",
+		AppID:         "app-id",
+		CertID:        "cert-id",
+		RefreshToken:  "refresh-123",
+	}, WithHTTPClient(httpClient))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	response, err := client.PublishOffer(context.Background(), "offer-123", "access-123")
+	if err != nil {
+		t.Fatalf("PublishOffer: %v", err)
+	}
+	if response.ListingID != "listing-123" {
+		t.Fatalf("listing id = %q", response.ListingID)
+	}
+}
+
 func TestNewClientRequiresConfig(t *testing.T) {
 	t.Parallel()
 

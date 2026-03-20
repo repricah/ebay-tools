@@ -16,6 +16,7 @@ const (
 	defaultTimeout            = 15 * time.Second
 	getPrivilegesPath         = "/sell/account/v1/privilege"
 	inventoryItemPath         = "/sell/inventory/v1/inventory_item"
+	offerPath                 = "/sell/inventory/v1/offer"
 	formContentType           = "application/x-www-form-urlencoded"
 	jsonContentType           = "application/json"
 	defaultReadonlyScope      = "https://api.ebay.com/oauth/api_scope/sell.account.readonly"
@@ -89,6 +90,48 @@ type Product struct {
 	ImageURLs   []string            `json:"imageUrls,omitempty"`
 	Subtitle    string              `json:"subtitle,omitempty"`
 	UPC         string              `json:"upc,omitempty"`
+}
+
+type OffersResponse struct {
+	Href   string  `json:"href,omitempty"`
+	Total  int     `json:"total,omitempty"`
+	Limit  int     `json:"limit,omitempty"`
+	Size   int     `json:"size,omitempty"`
+	Offers []Offer `json:"offers,omitempty"`
+}
+
+type Offer struct {
+	OfferID               string           `json:"offerId,omitempty"`
+	SKU                   string           `json:"sku,omitempty"`
+	MarketplaceID         string           `json:"marketplaceId,omitempty"`
+	Format                string           `json:"format,omitempty"`
+	AvailableQuantity     int              `json:"availableQuantity,omitempty"`
+	CategoryID            string           `json:"categoryId,omitempty"`
+	MerchantLocationKey   string           `json:"merchantLocationKey,omitempty"`
+	ListingDescription    string           `json:"listingDescription,omitempty"`
+	ListingDuration       string           `json:"listingDuration,omitempty"`
+	QuantityLimitPerBuyer int              `json:"quantityLimitPerBuyer,omitempty"`
+	Status                string           `json:"status,omitempty"`
+	ListingPolicies       *ListingPolicies `json:"listingPolicies,omitempty"`
+	PricingSummary        *PricingSummary  `json:"pricingSummary,omitempty"`
+}
+
+type ListingPolicies struct {
+	FulfillmentPolicyID string `json:"fulfillmentPolicyId,omitempty"`
+	PaymentPolicyID     string `json:"paymentPolicyId,omitempty"`
+	ReturnPolicyID      string `json:"returnPolicyId,omitempty"`
+}
+
+type PricingSummary struct {
+	Price *Amount `json:"price,omitempty"`
+}
+
+type CreateOfferResponse struct {
+	OfferID string `json:"offerId"`
+}
+
+type PublishOfferResponse struct {
+	ListingID string `json:"listingId"`
 }
 
 func WithHTTPClient(httpClient *http.Client) Option {
@@ -228,6 +271,68 @@ func (c *Client) UpsertInventoryItem(ctx context.Context, sku string, item Inven
 	return c.doJSON(req, nil)
 }
 
+func (c *Client) GetOffers(ctx context.Context, sku, accessToken string) (*OffersResponse, error) {
+	cleanSKU := strings.TrimSpace(sku)
+	if cleanSKU == "" {
+		return nil, fmt.Errorf("sku is required")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+offerPath, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build getOffers request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
+
+	query := req.URL.Query()
+	query.Set("sku", cleanSKU)
+	req.URL.RawQuery = query.Encode()
+
+	var offers OffersResponse
+	if err := c.doJSON(req, &offers); err != nil {
+		return nil, err
+	}
+	return &offers, nil
+}
+
+func (c *Client) CreateOffer(ctx context.Context, offer Offer, accessToken string) (*CreateOfferResponse, error) {
+	body, err := json.Marshal(offer)
+	if err != nil {
+		return nil, fmt.Errorf("marshal offer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBaseURL+offerPath, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("build createOffer request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
+	req.Header.Set("Content-Type", jsonContentType)
+
+	var response CreateOfferResponse
+	if err := c.doJSON(req, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (c *Client) PublishOffer(ctx context.Context, offerID, accessToken string) (*PublishOfferResponse, error) {
+	cleanOfferID := strings.TrimSpace(offerID)
+	if cleanOfferID == "" {
+		return nil, fmt.Errorf("offer id is required")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBaseURL+publishOfferPath(cleanOfferID), http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("build publishOffer request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
+
+	var response PublishOfferResponse
+	if err := c.doJSON(req, &response); err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
 func (c *Client) doJSON(req *http.Request, dst any) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -261,4 +366,8 @@ func (c *Client) basicAuth() string {
 
 func inventoryItemResourcePath(sku string) string {
 	return inventoryItemPath + "/" + url.PathEscape(strings.TrimSpace(sku))
+}
+
+func publishOfferPath(offerID string) string {
+	return offerPath + "/" + url.PathEscape(strings.TrimSpace(offerID)) + "/publish"
 }
