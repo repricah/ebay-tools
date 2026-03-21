@@ -111,47 +111,31 @@ func (d SealedProductDraft) baseDraft() BaseDraft      { return d.BaseDraft }
 func (d GenericCollectibleDraft) baseDraft() BaseDraft { return d.BaseDraft }
 
 func BuildInventoryItemFromDraft(draft ListingDraft) (InventoryItem, error) {
+	draft, err := normalizeListingDraft(draft)
+	if err != nil {
+		return InventoryItem{}, err
+	}
+
 	switch draft := draft.(type) {
 	case SingleCardDraft:
 		return buildSingleCardInventoryItem(draft, false)
-	case *SingleCardDraft:
-		return buildSingleCardInventoryItem(*draft, false)
 	case PlaysetDraft:
-		return buildSingleCardInventoryItem(SingleCardDraft{
-			BaseDraft: draft.BaseDraft,
-			Title:     draft.Title,
-			Game:      draft.Game,
-			CardName:  draft.CardName,
-			SetName:   draft.SetName,
-			Language:  draft.Language,
-			Finish:    draft.Finish,
-			Condition: draft.Condition,
-		}, true)
-	case *PlaysetDraft:
-		return buildSingleCardInventoryItem(SingleCardDraft{
-			BaseDraft: draft.BaseDraft,
-			Title:     draft.Title,
-			Game:      draft.Game,
-			CardName:  draft.CardName,
-			SetName:   draft.SetName,
-			Language:  draft.Language,
-			Finish:    draft.Finish,
-			Condition: draft.Condition,
-		}, true)
+		return buildSingleCardInventoryItem(singleCardFromPlayset(draft), true)
 	case SealedProductDraft:
 		return buildSealedProductInventoryItem(draft)
-	case *SealedProductDraft:
-		return buildSealedProductInventoryItem(*draft)
 	case GenericCollectibleDraft:
 		return buildGenericInventoryItem(draft)
-	case *GenericCollectibleDraft:
-		return buildGenericInventoryItem(*draft)
 	default:
 		return InventoryItem{}, fmt.Errorf("unsupported listing draft type %T", draft)
 	}
 }
 
 func BuildOfferFromDraft(draft ListingDraft) (Offer, error) {
+	draft, err := normalizeListingDraft(draft)
+	if err != nil {
+		return Offer{}, err
+	}
+
 	base := draft.baseDraft()
 	if strings.TrimSpace(base.SKU) == "" {
 		return Offer{}, fmt.Errorf("sku is required")
@@ -177,9 +161,10 @@ func BuildOfferFromDraft(draft ListingDraft) (Offer, error) {
 	}
 
 	quantity := normalizedQuantity(base.Quantity, 1)
+	lotSize := 0
 	switch draft.(type) {
-	case PlaysetDraft, *PlaysetDraft:
-		quantity = normalizedQuantity(base.Quantity, 4)
+	case PlaysetDraft:
+		lotSize = 4
 	}
 
 	listingDescription := strings.TrimSpace(listing.ListingDescription)
@@ -200,6 +185,7 @@ func BuildOfferFromDraft(draft ListingDraft) (Offer, error) {
 		SKU:                   strings.TrimSpace(base.SKU),
 		MarketplaceID:         strings.TrimSpace(listing.MarketplaceID),
 		Format:                format,
+		LotSize:               lotSize,
 		AvailableQuantity:     quantity,
 		CategoryID:            strings.TrimSpace(listing.CategoryID),
 		MerchantLocationKey:   strings.TrimSpace(listing.MerchantLocationKey),
@@ -247,7 +233,7 @@ func buildSingleCardInventoryItem(draft SingleCardDraft, playset bool) (Inventor
 
 	quantity := normalizedQuantity(base.Quantity, 1)
 	if playset {
-		quantity = normalizedQuantity(base.Quantity, 4)
+		quantity = normalizedQuantity(base.Quantity, 1)
 	}
 
 	return InventoryItem{
@@ -386,6 +372,50 @@ func normalizedQuantity(quantity int, defaultQuantity int) int {
 		return quantity
 	}
 	return defaultQuantity
+}
+
+func normalizeListingDraft(draft ListingDraft) (ListingDraft, error) {
+	if draft == nil {
+		return nil, fmt.Errorf("draft is nil")
+	}
+
+	switch draft := draft.(type) {
+	case *SingleCardDraft:
+		if draft == nil {
+			return nil, fmt.Errorf("draft is nil")
+		}
+		return *draft, nil
+	case *PlaysetDraft:
+		if draft == nil {
+			return nil, fmt.Errorf("draft is nil")
+		}
+		return *draft, nil
+	case *SealedProductDraft:
+		if draft == nil {
+			return nil, fmt.Errorf("draft is nil")
+		}
+		return *draft, nil
+	case *GenericCollectibleDraft:
+		if draft == nil {
+			return nil, fmt.Errorf("draft is nil")
+		}
+		return *draft, nil
+	default:
+		return draft, nil
+	}
+}
+
+func singleCardFromPlayset(draft PlaysetDraft) SingleCardDraft {
+	return SingleCardDraft{
+		BaseDraft: draft.BaseDraft,
+		Title:     draft.Title,
+		Game:      draft.Game,
+		CardName:  draft.CardName,
+		SetName:   draft.SetName,
+		Language:  draft.Language,
+		Finish:    draft.Finish,
+		Condition: draft.Condition,
+	}
 }
 
 func nonEmptySlice(value string) []string {

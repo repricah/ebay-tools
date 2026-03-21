@@ -150,6 +150,7 @@ type Offer struct {
 	SKU                   string           `json:"sku,omitempty"`
 	MarketplaceID         string           `json:"marketplaceId,omitempty"`
 	Format                string           `json:"format,omitempty"`
+	LotSize               int              `json:"lotSize,omitempty"`
 	AvailableQuantity     int              `json:"availableQuantity,omitempty"`
 	CategoryID            string           `json:"categoryId,omitempty"`
 	MerchantLocationKey   string           `json:"merchantLocationKey,omitempty"`

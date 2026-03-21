@@ -80,5 +80,12 @@ draft := ebaytools.PlaysetDraft{
 }
 
 item, err := ebaytools.BuildInventoryItemFromDraft(draft)
+if err != nil {
+	// handle error
+}
+
 offer, err := ebaytools.BuildOfferFromDraft(draft)
+if err != nil {
+	// handle error
+}
 ```

@@ -29,7 +29,10 @@ func TestBuildInventoryItemFromSingleCardDraft(t *testing.T) {
 	if item.Condition != "USED_VERY_GOOD" {
 		t.Fatalf("condition = %q", item.Condition)
 	}
-	if len(item.ConditionDescriptors) != 1 || item.ConditionDescriptors[0].Name != "40001" {
+	if len(item.ConditionDescriptors) != 1 ||
+		item.ConditionDescriptors[0].Name != "40001" ||
+		len(item.ConditionDescriptors[0].Values) != 1 ||
+		item.ConditionDescriptors[0].Values[0] != "400010" {
 		t.Fatalf("conditionDescriptors = %#v", item.ConditionDescriptors)
 	}
 	if item.Product == nil || item.Product.Title != "Black Lotus" {
@@ -77,7 +80,7 @@ func TestBuildOfferFromPlaysetDraftDefaultsQuantityAndTitle(t *testing.T) {
 	if item.Product == nil || item.Product.Title != "4x Lightning Bolt" {
 		t.Fatalf("product = %#v", item.Product)
 	}
-	if item.Availability == nil || item.Availability.ShipToLocationAvailability == nil || item.Availability.ShipToLocationAvailability.Quantity != 4 {
+	if item.Availability == nil || item.Availability.ShipToLocationAvailability == nil || item.Availability.ShipToLocationAvailability.Quantity != 1 {
 		t.Fatalf("availability = %#v", item.Availability)
 	}
 
@@ -85,8 +88,11 @@ func TestBuildOfferFromPlaysetDraftDefaultsQuantityAndTitle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildOfferFromDraft: %v", err)
 	}
-	if offer.AvailableQuantity != 4 {
+	if offer.AvailableQuantity != 1 {
 		t.Fatalf("available quantity = %d", offer.AvailableQuantity)
+	}
+	if offer.LotSize != 4 {
+		t.Fatalf("lot size = %d", offer.LotSize)
 	}
 	if offer.Format != "FIXED_PRICE" {
 		t.Fatalf("format = %q", offer.Format)
@@ -171,6 +177,16 @@ func TestBuildInventoryItemFromDraftRejectsMissingCardCondition(t *testing.T) {
 	}
 }
 
+func TestBuildInventoryItemFromDraftRejectsTypedNilPointer(t *testing.T) {
+	t.Parallel()
+
+	var draft *SingleCardDraft
+	_, err := BuildInventoryItemFromDraft(draft)
+	if err == nil || err.Error() != "draft is nil" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestBuildOfferFromDraftRejectsMissingListingRefs(t *testing.T) {
 	t.Parallel()
 
@@ -181,5 +197,15 @@ func TestBuildOfferFromDraftRejectsMissingListingRefs(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestBuildOfferFromDraftRejectsTypedNilPointer(t *testing.T) {
+	t.Parallel()
+
+	var draft *GenericCollectibleDraft
+	_, err := BuildOfferFromDraft(draft)
+	if err == nil || err.Error() != "draft is nil" {
+		t.Fatalf("err = %v", err)
 	}
 }
