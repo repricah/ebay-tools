@@ -2,6 +2,8 @@
 
 Reusable Go client and thin CLI for eBay selling workflows.
 
+It also exposes a small draft/contracts layer so app code can map domain objects into reusable listing shapes without constructing raw eBay payloads everywhere.
+
 Current surface:
 
 - refresh a user access token from a stored refresh token
@@ -13,6 +15,11 @@ Current surface:
 - create or replace one inventory item by SKU
 - get offers for one SKU
 - create and publish one offer
+- build `InventoryItem` / `Offer` structs from draft archetypes:
+  - `SingleCardDraft`
+  - `PlaysetDraft`
+  - `SealedProductDraft`
+  - `GenericCollectibleDraft`
 
 CLI:
 
@@ -44,3 +51,41 @@ Typical sandbox bootstrap flow:
 6. `inventory-upsert my-sku ./item.json`
 7. `offer-create ./offer.json`
 8. `offer-publish offer-id`
+
+Draft/contracts example:
+
+```go
+draft := ebaytools.PlaysetDraft{
+	BaseDraft: ebaytools.BaseDraft{
+		SKU:         "playset-lightning-bolt",
+		Description: "Four copies ready to list",
+		Listing: ebaytools.ListingOptions{
+			MarketplaceID:       "EBAY_US",
+			CategoryID:          "183454",
+			MerchantLocationKey: "warehouse-1",
+			Policies: ebaytools.PolicyRefs{
+				FulfillmentPolicyID: "fulfillment-id",
+				PaymentPolicyID:     "payment-id",
+				ReturnPolicyID:      "return-id",
+			},
+			Price: ebaytools.Money{Currency: "USD", Value: "3.99"},
+		},
+	},
+	Game:     "Magic: The Gathering",
+	CardName: "Lightning Bolt",
+	SetName:  "Magic 2010",
+	Condition: ebaytools.TradingCardCondition{
+		UngradedConditionDescriptorID: "400010",
+	},
+}
+
+item, err := ebaytools.BuildInventoryItemFromDraft(draft)
+if err != nil {
+	// handle error
+}
+
+offer, err := ebaytools.BuildOfferFromDraft(draft)
+if err != nil {
+	// handle error
+}
+```
