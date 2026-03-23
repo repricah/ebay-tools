@@ -14,6 +14,11 @@ Current surface:
 - get offers for one SKU
 - create and publish one offer
 
+Operator workflow docs:
+
+- sealed photo-research handoff for ChatGPT/Codex:
+  - [`docs/sealed-research-handoff.md`](docs/sealed-research-handoff.md)
+
 CLI:
 
 ```bash
