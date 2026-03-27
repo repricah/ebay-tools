@@ -15,6 +15,19 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
 
+type stubHTTPClient struct {
+	lastReq *http.Request
+}
+
+func (s *stubHTTPClient) Do(r *http.Request) (*http.Response, error) {
+	s.lastReq = r
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"sellerRegistrationCompleted":true}`)),
+	}, nil
+}
+
 func TestRefreshUserAccessToken(t *testing.T) {
 	t.Parallel()
 
@@ -841,5 +854,35 @@ func TestNewClientRequiresConfig(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "api base url is required") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWithHTTPClientAcceptsInterface(t *testing.T) {
+	t.Parallel()
+
+	clientInterface := &stubHTTPClient{}
+	client, err := NewClient(Config{
+		APIBaseURL:    "https://api.sandbox.ebay.test",
+		OAuthTokenURL: "https://api.sandbox.ebay.test/identity/v1/oauth2/token",
+		AppID:         "app-id",
+		CertID:        "cert-id",
+		RefreshToken:  "refresh-123",
+	}, WithHTTPClient(clientInterface))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	privileges, err := client.GetPrivileges(context.Background(), "access-123")
+	if err != nil {
+		t.Fatalf("GetPrivileges: %v", err)
+	}
+	if clientInterface.lastReq == nil {
+		t.Fatalf("expected request to be sent via interface client")
+	}
+	if got := clientInterface.lastReq.Header.Get("Authorization"); got != "Bearer access-123" {
+		t.Fatalf("authorization = %q", got)
+	}
+	if privileges == nil || !privileges.SellerRegistrationCompleted {
+		t.Fatalf("unexpected privileges: %#v", privileges)
 	}
 }
