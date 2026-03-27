@@ -41,13 +41,19 @@ type Config struct {
 
 type Option func(*Client)
 
+// HTTPClient defines the minimal interface required to execute HTTP requests.
+// It matches the method signature of http.Client.Do to allow custom clients.
+type HTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 type Client struct {
 	apiBaseURL    string
 	oauthTokenURL string
 	appID         string
 	certID        string
 	refreshToken  string
-	httpClient    *http.Client
+	httpClient    HTTPClient
 }
 
 type TokenResponse struct {
@@ -283,7 +289,7 @@ type ReturnPoliciesResponse struct {
 	ReturnPolicies []ReturnPolicy `json:"returnPolicies,omitempty"`
 }
 
-func WithHTTPClient(httpClient *http.Client) Option {
+func WithHTTPClient(httpClient HTTPClient) Option {
 	return func(c *Client) {
 		if httpClient != nil {
 			c.httpClient = httpClient
